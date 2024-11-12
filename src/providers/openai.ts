@@ -1,6 +1,5 @@
 import type { Cache } from 'cache-manager';
 import OpenAI from 'openai';
-import type { WebSocket as WSType } from 'ws';
 import { fetchWithCache, getCache, isCacheEnabled } from '../cache';
 import { getEnvString, getEnvFloat, getEnvInt } from '../envars';
 import logger from '../logger';
@@ -1128,7 +1127,6 @@ type OpenAiAudioOptions = OpenAiSharedOptions & {
 };
 
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
-  private ws: WSType | null = null;
   static readonly OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
 
   constructor(
