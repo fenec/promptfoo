@@ -1328,6 +1328,10 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
           logger.debug(`WebSocket closed during response with code ${code} and reason: ${reason}`);
           clearTimeout(timeout);
           if (!isDone && hasStartedReceiving) {
+            logger.warn(`output: ${output}`);
+            logger.warn(`audioData: ${audioData}`);
+            logger.warn(`audioId: ${audioId}`);
+            logger.warn(`expiresAt: ${expiresAt}`);
             resolve({
               output,
               audio: audioData
