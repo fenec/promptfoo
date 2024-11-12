@@ -1318,14 +1318,6 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
   }
 }
 
-// Update the default provider with valid voice and format options
-export const DefaultAudioProvider = new OpenAiAudioProvider('gpt-4o-audio-preview', {
-  config: {
-    voice: 'alloy',
-    format: 'wav',
-  },
-});
-
 export const DefaultEmbeddingProvider = new OpenAiEmbeddingProvider('text-embedding-3-large');
 export const DefaultGradingProvider = new OpenAiChatCompletionProvider('gpt-4o-2024-05-13');
 export const DefaultGradingJsonProvider = new OpenAiChatCompletionProvider('gpt-4o-2024-05-13', {
@@ -1335,3 +1327,9 @@ export const DefaultGradingJsonProvider = new OpenAiChatCompletionProvider('gpt-
 });
 export const DefaultSuggestionsProvider = new OpenAiChatCompletionProvider('gpt-4o-2024-05-13');
 export const DefaultModerationProvider = new OpenAiModerationProvider('omni-moderation-latest');
+export const DefaultAudioProvider = new OpenAiAudioProvider('gpt-4o-audio-preview', {
+  config: {
+    voice: 'alloy',
+    format: 'wav',
+  },
+});
