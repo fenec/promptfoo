@@ -1128,6 +1128,7 @@ type OpenAiAudioOptions = OpenAiSharedOptions & {
 
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
   static readonly OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
+  config: OpenAiAudioOptions;
 
   constructor(
     modelName: string,
@@ -1137,9 +1138,28 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
     this.config = options.config || {};
   }
 
+  private getCacheKey(prompt: string): string {
+    const configKey = JSON.stringify(this.config);
+    return `openai:${this.modelName}:${configKey}:${prompt}`;
+  }
+
   async callApi(prompt: string): Promise<ProviderResponse> {
     if (!this.getApiKey()) {
       throw new Error('OpenAI API key is not set');
+    }
+
+    if (isCacheEnabled()) {
+      const cache = await getCache();
+      const cacheKey = this.getCacheKey(prompt);
+
+      const cachedResponse = await cache.get(cacheKey);
+      if (cachedResponse) {
+        logger.debug(`Returning cached audio response for prompt: ${prompt}`);
+        return {
+          ...cachedResponse,
+          cached: true,
+        };
+      }
     }
 
     const WebSocket = (await import('ws')).default;
@@ -1201,7 +1221,7 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
         );
       });
 
-      ws.on('message', (data) => {
+      ws.on('message', async (data) => {
         try {
           const event = JSON.parse(data.toString());
           logger.debug(`Received event type: ${event.type}`);
@@ -1286,7 +1306,19 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
               logger.debug(`Response completed, resolving with output: ${output}`);
               clearTimeout(timeout);
               ws.close();
-              resolve({
+
+              const tokenUsage = getTokenUsage(
+                {
+                  usage: {
+                    total_tokens: event.response?.usage?.total_tokens,
+                    prompt_tokens: event.response?.usage?.input_tokens,
+                    completion_tokens: event.response?.usage?.output_tokens,
+                  },
+                },
+                false,
+              );
+
+              const response = {
                 output,
                 audio: audioData
                   ? {
@@ -1297,7 +1329,26 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
                     }
                   : undefined,
                 cached: false,
-              });
+                tokenUsage,
+                cost: calculateOpenAICost(
+                  this.modelName,
+                  this.config,
+                  tokenUsage.prompt,
+                  tokenUsage.completion,
+                ),
+              };
+
+              // Cache the response
+              if (isCacheEnabled()) {
+                const cache = await getCache();
+                const cacheKey = this.getCacheKey(prompt);
+                await cache.set(cacheKey, response);
+                logger.debug(
+                  `Cached audio response for prompt: ${prompt} with config: ${JSON.stringify(this.config)}`,
+                );
+              }
+
+              resolve(response);
               break;
 
             default:
