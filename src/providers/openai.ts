@@ -1122,23 +1122,10 @@ export class OpenAiModerationProvider
   }
 }
 
-// Update the type definition for voice and format options
 type OpenAiAudioOptions = OpenAiSharedOptions & {
   voice?: 'alloy' | 'echo' | 'shimmer' | 'ash' | 'ballad' | 'coral' | 'sage' | 'verse';
   format?: 'wav' | 'mp3' | 'opus' | 'flac' | 'pcm16';
 };
-
-// First, let's extend the ProviderResponse type to include audio-related fields
-declare module '../types' {
-  interface ProviderResponse {
-    audio?: {
-      data: string;
-      id: string;
-      expires_at: number;
-      transcript?: string;
-    };
-  }
-}
 
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
   private ws: WSType | null = null;

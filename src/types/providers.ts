@@ -74,6 +74,13 @@ export interface ApiModerationProvider extends ApiProvider {
   callModerationApi: (prompt: string, response: string) => Promise<ProviderModerationResponse>;
 }
 
+export interface AudioData {
+  data: string;
+  id: string;
+  expires_at: number;
+  transcript?: string;
+}
+
 export interface ProviderResponse {
   cached?: boolean;
   cost?: number;
@@ -87,6 +94,7 @@ export interface ProviderResponse {
   output?: string | any;
   tokenUsage?: TokenUsage;
   isRefusal?: boolean;
+  audio?: AudioData;
 }
 
 export interface ProviderEmbeddingResponse {
