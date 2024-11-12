@@ -1,6 +1,5 @@
 import type { Cache } from 'cache-manager';
 import OpenAI from 'openai';
-import type WebSocket from 'ws';
 import type { WebSocket as WSType } from 'ws';
 import { fetchWithCache, getCache, isCacheEnabled } from '../cache';
 import { getEnvString, getEnvFloat, getEnvInt } from '../envars';
@@ -1142,10 +1141,8 @@ declare module '../types' {
 }
 
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
-  config: OpenAiAudioOptions;
   private ws: WSType | null = null;
-
-  static OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
+  static readonly OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
 
   constructor(
     modelName: string,
@@ -1155,282 +1152,184 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
     this.config = options.config || {};
   }
 
-  private async initWebSocket(): Promise<WSType> {
-    const WebSocket = (await import('ws')).default;
-    logger.debug('Initializing WebSocket connection...');
+  async callApi(prompt: string): Promise<ProviderResponse> {
+    if (!this.getApiKey()) {
+      throw new Error('OpenAI API key is not set');
+    }
 
-    const ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=${this.modelName}`, {
-      headers: {
-        Authorization: `Bearer ${this.getApiKey()}`,
-        'OpenAI-Beta': 'realtime=v1',
-        ...(this.getOrganization() ? { 'OpenAI-Organization': this.getOrganization() } : {}),
-        ...this.config.headers,
-      },
-    });
+    const WebSocket = (await import('ws')).default;
 
     return new Promise((resolve, reject) => {
-      const connectionTimeout = setTimeout(() => {
-        reject(new Error('WebSocket connection timeout'));
-        ws.close();
-      }, 10000); // 10 second connection timeout
-
-      ws.on('open', () => {
-        logger.debug('WebSocket connection established');
-        clearTimeout(connectionTimeout);
-        resolve(ws);
+      const url = `wss://api.openai.com/v1/realtime?model=${this.modelName}`;
+      const ws = new WebSocket(url, {
+        headers: {
+          Authorization: `Bearer ${this.getApiKey()}`,
+          'OpenAI-Beta': 'realtime=v1',
+          ...(this.getOrganization() ? { 'OpenAI-Organization': this.getOrganization() } : {}),
+        },
       });
 
+      let output = '';
+      let audioData = '';
+      let audioId = '';
+      let expiresAt = Date.now() + 3600000;
+
+      const timeout = setTimeout(() => {
+        ws.close();
+        reject(new Error('Request timed out'));
+      }, REQUEST_TIMEOUT_MS);
+
       ws.on('error', (error) => {
-        logger.error(`WebSocket connection error: ${error}`);
-        clearTimeout(connectionTimeout);
+        clearTimeout(timeout);
         reject(error);
       });
 
-      ws.on('close', (code, reason) => {
-        logger.debug(
-          `WebSocket closed during initialization with code ${code} and reason: ${reason}`,
+      ws.on('open', () => {
+        logger.debug('WebSocket connected');
+
+        // First create the response configuration
+        ws.send(
+          JSON.stringify({
+            type: 'response.create',
+            response: {
+              modalities: ['text', 'audio'],
+              instructions: 'Please assist the user.',
+            },
+          }),
         );
-        clearTimeout(connectionTimeout);
-        reject(
-          new Error(
-            `WebSocket closed during initialization (${code}${reason ? ': ' + reason : ''})`,
-          ),
+
+        // Then send the user message
+        ws.send(
+          JSON.stringify({
+            type: 'conversation.item.create',
+            item: {
+              type: 'message',
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: prompt,
+                },
+              ],
+            },
+          }),
         );
       });
-    });
-  }
 
-  private async waitForEvent(
-    ws: WSType,
-    expectedType: string,
-    timeoutMs: number = 5000,
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Timeout waiting for event ${expectedType}`));
-      }, timeoutMs);
-
-      const messageHandler = (data: WebSocket.RawData) => {
+      ws.on('message', (data) => {
         try {
           const event = JSON.parse(data.toString());
-          if (event.type === expectedType) {
+          logger.debug(`Received event type: ${event.type}`);
+          logger.debug(`Full event: ${JSON.stringify(event, null, 2)}`);
+
+          if (event.type === 'error') {
             clearTimeout(timeout);
-            ws.removeListener('message', messageHandler);
-            resolve(event);
-          } else if (event.type === 'error') {
-            clearTimeout(timeout);
-            ws.removeListener('message', messageHandler);
             reject(new Error(`API error: ${event.error.message}`));
+            return;
           }
-        } catch (err) {
-          // Continue waiting if we can't parse the message
-          logger.debug(`Error parsing message while waiting for ${expectedType}: ${err}`);
-        }
-      };
 
-      ws.on('message', messageHandler);
-    });
-  }
+          switch (event.type) {
+            case 'session.created':
+              logger.debug('Session initialized');
+              break;
 
-  private async sendMessage(ws: WSType, message: any): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        logger.debug(`Sending message: ${JSON.stringify(message)}`);
-        ws.send(JSON.stringify(message), (error) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve();
-          }
-        });
-      } catch (err) {
-        reject(err);
-      }
-    });
-  }
+            case 'conversation.item.created':
+              logger.debug('Message added to conversation');
+              break;
 
-  async callApi(
-    prompt: string,
-    context?: CallApiContextParams,
-    callApiOptions?: CallApiOptionsParams,
-  ): Promise<ProviderResponse> {
-    if (!this.getApiKey()) {
-      throw new Error(
-        'OpenAI API key is not set. Set the OPENAI_API_KEY environment variable or add `apiKey` to the provider config.',
-      );
-    }
+            case 'response.created':
+              logger.debug('Response started');
+              break;
 
-    let ws: WSType | null = null;
-    try {
-      logger.debug('Starting API call...');
-      ws = await this.initWebSocket();
-      this.ws = ws;
+            case 'response.output.text':
+              logger.debug(`Got text output: ${event.text}`);
+              output += event.text;
+              break;
 
-      logger.debug('Initializing session...');
-      await this.sendMessage(ws, {
-        type: 'session.update',
-        session: {
-          voice: this.config.voice || 'alloy',
-        },
-      });
-      // Wait for session acknowledgment
-      await this.waitForEvent(ws, 'session.updated');
-
-      logger.debug('Creating response...');
-      await this.sendMessage(ws, {
-        type: 'response.create',
-        response: {
-          modalities: ['audio', 'text'],
-          instructions:
-            'You are a helpful AI assistant. Please provide clear and concise responses.',
-        },
-      });
-      // Wait for response creation acknowledgment
-      await this.waitForEvent(ws, 'response.created');
-
-      logger.debug('Sending user message...');
-      await this.sendMessage(ws, {
-        type: 'conversation.item.create',
-        item: {
-          type: 'message',
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: prompt,
-            },
-          ],
-        },
-      });
-
-      return new Promise((resolve, reject) => {
-        if (!ws) {
-          reject(new Error('WebSocket connection not initialized'));
-          return;
-        }
-
-        let output = '';
-        let audioData = '';
-        let audioId = '';
-        let expiresAt = 0;
-        let isDone = false;
-        let hasStartedReceiving = false;
-
-        const timeout = setTimeout(() => {
-          if (!isDone) {
-            logger.error('Request timed out');
-            ws?.close();
-            reject(new Error('Request timed out'));
-          }
-        }, REQUEST_TIMEOUT_MS);
-
-        ws.on('close', (code, reason) => {
-          logger.debug(`WebSocket closed during response with code ${code} and reason: ${reason}`);
-          clearTimeout(timeout);
-          if (!isDone && hasStartedReceiving) {
-            logger.warn(`output: ${output}`);
-            logger.warn(`audioData: ${audioData}`);
-            logger.warn(`audioId: ${audioId}`);
-            logger.warn(`expiresAt: ${expiresAt}`);
-            resolve({
-              output,
-              audio: audioData
-                ? {
-                    data: audioData,
-                    id: audioId,
-                    expires_at: expiresAt,
-                    transcript: output,
-                  }
-                : undefined,
-              cached: false,
-            });
-          } else if (!isDone) {
-            reject(
-              new Error(`WebSocket closed unexpectedly (${code}${reason ? ': ' + reason : ''})`),
-            );
-          }
-        });
-
-        ws.on('error', (error) => {
-          logger.error(`WebSocket error during response: ${error}`);
-          clearTimeout(timeout);
-          reject(error);
-        });
-
-        ws.on('message', (data: WebSocket.RawData) => {
-          try {
-            const event = JSON.parse(data.toString());
-            logger.debug(`Received event: ${JSON.stringify(event)}`);
-            hasStartedReceiving = true;
-
-            if (event.type === 'error') {
-              clearTimeout(timeout);
-              reject(new Error(`API error: ${event.error.message}`));
-              return;
-            }
-
-            switch (event.type) {
-              case 'response.output.done':
-              case 'response.completed':
-              case 'done':
-                isDone = true;
-                clearTimeout(timeout);
-                resolve({
-                  output,
-                  audio: audioData
-                    ? {
-                        data: audioData,
-                        id: audioId,
-                        expires_at: expiresAt,
-                        transcript: output,
-                      }
-                    : undefined,
-                  cached: false,
-                });
-                ws?.close();
-                return;
-
-              case 'response.output.text':
-                output += event.text;
-                break;
-
-              case 'response.output.audio':
-                audioData = event.audio;
-                audioId = event.id;
+            case 'response.output.audio':
+              logger.debug(`Got audio output with ID: ${event.id}`);
+              audioData = event.audio;
+              audioId = event.id || 'default_id';
+              if (event.expires_at) {
                 expiresAt = event.expires_at;
-                break;
+              }
+              break;
 
-              case 'response.failed':
-              case 'error':
-                clearTimeout(timeout);
-                reject(new Error(`Response failed: ${event.error?.message || 'Unknown error'}`));
-                return;
+            case 'response.audio_transcript.delta':
+              logger.debug(`Got transcript delta: ${event.delta}`);
+              output += event.delta;
+              break;
 
-              default:
-                logger.debug(`Unknown event type: ${event.type}`);
-            }
-          } catch (err) {
-            logger.error(`Error processing message: ${err}`);
-            clearTimeout(timeout);
-            reject(err);
+            case 'response.audio.delta':
+              logger.debug('Got audio delta');
+              // Accumulate base64 audio data
+              audioData = audioData ? audioData + event.delta : event.delta;
+              break;
+
+            case 'response.audio.done':
+              logger.debug('Audio stream completed');
+              break;
+
+            case 'response.audio_transcript.done':
+              logger.debug(`Final transcript: ${event.transcript}`);
+              // Update final transcript
+              output = event.transcript;
+              break;
+
+            case 'response.content_part.added':
+              logger.debug('Content part added');
+              break;
+
+            case 'response.content_part.done':
+              logger.debug('Content part completed');
+              break;
+
+            case 'response.output_item.added':
+              logger.debug('Output item added');
+              break;
+
+            case 'response.output_item.done':
+              logger.debug('Output item completed');
+              break;
+
+            case 'rate_limits.updated':
+              logger.debug(`Rate limits updated: ${JSON.stringify(event.rate_limits)}`);
+              break;
+
+            case 'response.completed':
+            case 'response.done':
+              logger.debug(`Response completed, resolving with output: ${output}`);
+              clearTimeout(timeout);
+              ws.close();
+              resolve({
+                output,
+                audio: audioData
+                  ? {
+                      data: audioData,
+                      id: audioId,
+                      expires_at: expiresAt,
+                      transcript: output,
+                    }
+                  : undefined,
+                cached: false,
+              });
+              break;
+
+            default:
+              logger.debug(`Unknown event type: ${event.type}`);
           }
-        });
-      });
-    } catch (err) {
-      logger.error(`API call error: ${String(err)}`);
-      return {
-        error: `API call error: ${String(err)}`,
-      };
-    } finally {
-      if (ws) {
-        try {
-          ws.close();
         } catch (err) {
-          logger.error(`Error closing WebSocket: ${String(err)}`);
+          logger.error('Error processing message:', err);
+          clearTimeout(timeout);
+          reject(err);
         }
-      }
-      this.ws = null;
-    }
+      });
+
+      ws.on('close', (code, reason) => {
+        logger.debug(`WebSocket closed with code ${code} and reason: ${reason}`);
+        clearTimeout(timeout);
+      });
+    });
   }
 }
 
