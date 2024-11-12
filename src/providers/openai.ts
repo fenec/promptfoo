@@ -24,7 +24,7 @@ import { sleep } from '../util/time';
 import type { OpenAiFunction, OpenAiTool } from './openaiUtil';
 import { calculateCost, REQUEST_TIMEOUT_MS, parseChatPrompt, toTitleCase } from './shared';
 
-const OPENAI_AUDIO_MODELS = [
+export const OPENAI_AUDIO_MODELS = [
   ...['gpt-4o-audio-preview', 'gpt-4o-realtime-preview-2024-10-01'].map((model) => ({
     id: model,
     cost: {
@@ -1144,7 +1144,8 @@ declare module '../types' {
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
   config: OpenAiAudioOptions;
   private ws: WSType | null = null;
-  private readonly REALTIME_MODEL = 'gpt-4o-realtime-preview-2024-10-01';
+
+  static OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
 
   constructor(
     modelName: string,
@@ -1158,7 +1159,7 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
     const WebSocket = (await import('ws')).default;
     logger.debug('Initializing WebSocket connection...');
 
-    const ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=${this.REALTIME_MODEL}`, {
+    const ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=${this.modelName}`, {
       headers: {
         Authorization: `Bearer ${this.getApiKey()}`,
         'OpenAI-Beta': 'realtime=v1',

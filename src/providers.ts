@@ -162,16 +162,8 @@ export async function loadApiProvider(
       ret = new OpenAiCompletionProvider(modelName || 'gpt-3.5-turbo-instruct', providerOptions);
     } else if (modelType === 'moderation') {
       ret = new OpenAiModerationProvider(modelName || 'omni-moderation-latest', providerOptions);
-    } else if (modelType === 'audio') {
-      logger.warn('selecting audio provider');
-      ret = new OpenAiAudioProvider('gpt-4o-audio-preview', {
-        ...providerOptions,
-        config: {
-          ...providerOptions.config,
-          modalities: ['audio'],
-          voice: providerOptions.config?.voice || 'alloy',
-        },
-      });
+    } else if (OpenAiAudioProvider.OPENAI_AUDIO_MODELS.some((model) => model.id === modelName)) {
+      ret = new OpenAiAudioProvider(modelName, providerOptions);
     } else if (OpenAiChatCompletionProvider.OPENAI_CHAT_MODEL_NAMES.includes(modelType)) {
       ret = new OpenAiChatCompletionProvider(modelType, providerOptions);
     } else if (OpenAiCompletionProvider.OPENAI_COMPLETION_MODEL_NAMES.includes(modelType)) {
