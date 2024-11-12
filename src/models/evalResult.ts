@@ -5,6 +5,7 @@ import { evalResultsTable } from '../database/tables';
 import { hashPrompt } from '../prompts/utils';
 import type {
   AtomicTestCase,
+  AudioData,
   GradingResult,
   Prompt,
   ProviderOptions,
@@ -149,6 +150,12 @@ export default class EvalResult {
   cost: number;
   metadata: Record<string, any>;
   persisted: boolean;
+  audio?: {
+    data: string; // Base64 encoded audio data
+    id: string;
+    expires_at: number;
+    transcript?: string;
+  };
 
   constructor(opts: {
     id: string;
@@ -169,6 +176,7 @@ export default class EvalResult {
     cost?: number | null;
     metadata?: Record<string, any> | null;
     persisted?: boolean;
+    audio?: AudioData;
   }) {
     this.id = opts.id;
     this.evalId = opts.evalId;
@@ -189,6 +197,7 @@ export default class EvalResult {
     this.cost = opts.cost || 0;
     this.metadata = opts.metadata || {};
     this.persisted = opts.persisted || false;
+    this.audio = opts.audio;
   }
 
   async save() {
@@ -226,6 +235,7 @@ export default class EvalResult {
       testIdx: this.testIdx,
       vars: this.testCase.vars || {},
       metadata: this.metadata,
+      audio: this.audio,
     };
   }
 }

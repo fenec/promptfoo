@@ -12,7 +12,7 @@ import {
 } from '../validators/providers';
 import { NunjucksFilterMapSchema, TokenUsageSchema } from '../validators/shared';
 import type { Prompt, PromptFunction } from './prompts';
-import type { ApiProvider, ProviderOptions, ProviderResponse } from './providers';
+import type { ApiProvider, AudioData, ProviderOptions, ProviderResponse } from './providers';
 import type { NunjucksFilterMap, TokenUsage } from './shared';
 
 export * from './prompts';
@@ -192,24 +192,25 @@ export interface PromptWithMetadata {
 }
 
 export interface EvaluateResult {
-  id?: string; // on the new version 2, this is stored per-result
-  description?: string; // on the new version 2, this is stored per-result // FIXME(ian): The EvalResult model doesn't pass this through, but that's ok since we can use testCase.description?
-  promptIdx: number; // on the new version 2, this is stored per-result
-  testIdx: number; // on the new version 2, this is stored per-result
-  testCase: AtomicTestCase; // on the new version 2, this is stored per-result
-  promptId: string; // on the new version 2, this is stored per-result
-  provider: Pick<ProviderOptions, 'id' | 'label'>;
-  prompt: Prompt;
-  vars: Record<string, string | object>;
-  response?: ProviderResponse;
-  error?: string | null;
-  success: boolean;
-  score: number;
-  latencyMs: number;
-  gradingResult?: GradingResult | null;
-  namedScores: Record<string, number>;
+  audio?: AudioData;
   cost?: number;
+  description?: string; // on the new version 2, this is stored per-result // FIXME(ian): The EvalResult model doesn't pass this through, but that's ok since we can use testCase.description?
+  error?: string | null;
+  gradingResult?: GradingResult | null;
+  id?: string; // on the new version 2, this is stored per-result
+  latencyMs: number;
   metadata?: Record<string, any>;
+  namedScores: Record<string, number>;
+  prompt: Prompt;
+  promptId: string; // on the new version 2, this is stored per-result
+  promptIdx: number; // on the new version 2, this is stored per-result
+  provider: Pick<ProviderOptions, 'id' | 'label'>;
+  response?: ProviderResponse;
+  score: number;
+  success: boolean;
+  testCase: AtomicTestCase; // on the new version 2, this is stored per-result
+  testIdx: number; // on the new version 2, this is stored per-result
+  vars: Record<string, string | object>;
 }
 
 export interface EvaluateTableOutput {

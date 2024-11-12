@@ -35,7 +35,6 @@ export const OPENAI_AUDIO_MODELS = [
 
 // see https://platform.openai.com/docs/models
 const OPENAI_CHAT_MODELS = [
-  ...OPENAI_AUDIO_MODELS,
   ...['o1-preview', 'o1-preview-2024-09-12'].map((model) => ({
     id: model,
     cost: {
@@ -119,7 +118,6 @@ const OPENAI_CHAT_MODELS = [
       output: 2 / 1000000,
     },
   })),
-  ...OPENAI_AUDIO_MODELS,
 ];
 
 // See https://platform.openai.com/docs/models/model-endpoint-compatibility
@@ -147,9 +145,12 @@ interface OpenAiSharedOptions {
   organization?: string;
   cost?: number;
   headers?: { [key: string]: string };
-  voice?: 'alloy' | 'echo' | 'shimmer' | 'ash' | 'ballad' | 'coral' | 'sage' | 'verse';
-  format?: 'wav' | 'mp3' | 'opus' | 'flac' | 'pcm16';
 }
+
+export type OpenAiAudioOptions = OpenAiSharedOptions & {
+  format?: 'flac' | 'mp3' | 'opus' | 'pcm16' | 'wav';
+  voice?: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
+};
 
 export type OpenAiCompletionOptions = OpenAiSharedOptions & {
   temperature?: number;
@@ -1120,11 +1121,6 @@ export class OpenAiModerationProvider
     }
   }
 }
-
-type OpenAiAudioOptions = OpenAiSharedOptions & {
-  voice?: 'alloy' | 'echo' | 'shimmer' | 'ash' | 'ballad' | 'coral' | 'sage' | 'verse';
-  format?: 'wav' | 'mp3' | 'opus' | 'flac' | 'pcm16';
-};
 
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
   static readonly OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
