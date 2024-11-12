@@ -1230,18 +1230,6 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
           }
 
           switch (event.type) {
-            case 'session.created':
-              logger.debug('Session initialized');
-              break;
-
-            case 'conversation.item.created':
-              logger.debug('Message added to conversation');
-              break;
-
-            case 'response.created':
-              logger.debug('Response started');
-              break;
-
             case 'response.output.text':
               logger.debug(`Got text output: ${event.text}`);
               output += event.text;
@@ -1275,26 +1263,6 @@ export class OpenAiAudioProvider extends OpenAiGenericProvider {
               logger.debug(`Final transcript: ${event.transcript}`);
               // Update final transcript
               output = event.transcript;
-              break;
-
-            case 'response.content_part.added':
-              logger.debug('Content part added');
-              break;
-
-            case 'response.content_part.done':
-              logger.debug('Content part completed');
-              break;
-
-            case 'response.output_item.added':
-              logger.debug('Output item added');
-              break;
-
-            case 'response.output_item.done':
-              logger.debug('Output item completed');
-              break;
-
-            case 'rate_limits.updated':
-              logger.debug(`Rate limits updated: ${JSON.stringify(event.rate_limits)}`);
               break;
 
             case 'response.completed':
