@@ -1,5 +1,7 @@
 import type { Cache } from 'cache-manager';
 import OpenAI from 'openai';
+import type WebSocket from 'ws';
+import type { WebSocket as WSType } from 'ws';
 import { fetchWithCache, getCache, isCacheEnabled } from '../cache';
 import { getEnvString, getEnvFloat, getEnvInt } from '../envars';
 import logger from '../logger';
@@ -22,8 +24,20 @@ import { sleep } from '../util/time';
 import type { OpenAiFunction, OpenAiTool } from './openaiUtil';
 import { calculateCost, REQUEST_TIMEOUT_MS, parseChatPrompt, toTitleCase } from './shared';
 
+const OPENAI_AUDIO_MODELS = [
+  ...['gpt-4o-audio-preview', 'gpt-4o-realtime-preview-2024-10-01'].map((model) => ({
+    id: model,
+    cost: {
+      input: 15 / 1e6,
+      output: 60 / 1e6,
+    },
+    requiresAudio: true,
+  })),
+];
+
 // see https://platform.openai.com/docs/models
 const OPENAI_CHAT_MODELS = [
+  ...OPENAI_AUDIO_MODELS,
   ...['o1-preview', 'o1-preview-2024-09-12'].map((model) => ({
     id: model,
     cost: {
@@ -107,6 +121,7 @@ const OPENAI_CHAT_MODELS = [
       output: 2 / 1000000,
     },
   })),
+  ...OPENAI_AUDIO_MODELS,
 ];
 
 // See https://platform.openai.com/docs/models/model-endpoint-compatibility
@@ -134,6 +149,8 @@ interface OpenAiSharedOptions {
   organization?: string;
   cost?: number;
   headers?: { [key: string]: string };
+  voice?: 'alloy' | 'echo' | 'shimmer' | 'ash' | 'ballad' | 'coral' | 'sage' | 'verse';
+  format?: 'wav' | 'mp3' | 'opus' | 'flac' | 'pcm16';
 }
 
 export type OpenAiCompletionOptions = OpenAiSharedOptions & {
@@ -1105,6 +1122,320 @@ export class OpenAiModerationProvider
     }
   }
 }
+
+// Update the type definition for voice and format options
+type OpenAiAudioOptions = OpenAiSharedOptions & {
+  voice?: 'alloy' | 'echo' | 'shimmer' | 'ash' | 'ballad' | 'coral' | 'sage' | 'verse';
+  format?: 'wav' | 'mp3' | 'opus' | 'flac' | 'pcm16';
+};
+
+// First, let's extend the ProviderResponse type to include audio-related fields
+declare module '../types' {
+  interface ProviderResponse {
+    audio?: {
+      data: string;
+      id: string;
+      expires_at: number;
+      transcript?: string;
+    };
+  }
+}
+
+export class OpenAiAudioProvider extends OpenAiGenericProvider {
+  config: OpenAiAudioOptions;
+  private ws: WSType | null = null;
+  private readonly REALTIME_MODEL = 'gpt-4o-realtime-preview-2024-10-01';
+
+  constructor(
+    modelName: string,
+    options: { config?: OpenAiAudioOptions; id?: string; env?: EnvOverrides } = {},
+  ) {
+    super(modelName, options);
+    this.config = options.config || {};
+  }
+
+  private async initWebSocket(): Promise<WSType> {
+    const WebSocket = (await import('ws')).default;
+    logger.debug('Initializing WebSocket connection...');
+
+    const ws = new WebSocket(`wss://api.openai.com/v1/realtime?model=${this.REALTIME_MODEL}`, {
+      headers: {
+        Authorization: `Bearer ${this.getApiKey()}`,
+        'OpenAI-Beta': 'realtime=v1',
+        ...(this.getOrganization() ? { 'OpenAI-Organization': this.getOrganization() } : {}),
+        ...this.config.headers,
+      },
+    });
+
+    return new Promise((resolve, reject) => {
+      const connectionTimeout = setTimeout(() => {
+        reject(new Error('WebSocket connection timeout'));
+        ws.close();
+      }, 10000); // 10 second connection timeout
+
+      ws.on('open', () => {
+        logger.debug('WebSocket connection established');
+        clearTimeout(connectionTimeout);
+        resolve(ws);
+      });
+
+      ws.on('error', (error) => {
+        logger.error(`WebSocket connection error: ${error}`);
+        clearTimeout(connectionTimeout);
+        reject(error);
+      });
+
+      ws.on('close', (code, reason) => {
+        logger.debug(
+          `WebSocket closed during initialization with code ${code} and reason: ${reason}`,
+        );
+        clearTimeout(connectionTimeout);
+        reject(
+          new Error(
+            `WebSocket closed during initialization (${code}${reason ? ': ' + reason : ''})`,
+          ),
+        );
+      });
+    });
+  }
+
+  private async waitForEvent(
+    ws: WSType,
+    expectedType: string,
+    timeoutMs: number = 5000,
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Timeout waiting for event ${expectedType}`));
+      }, timeoutMs);
+
+      const messageHandler = (data: WebSocket.RawData) => {
+        try {
+          const event = JSON.parse(data.toString());
+          if (event.type === expectedType) {
+            clearTimeout(timeout);
+            ws.removeListener('message', messageHandler);
+            resolve(event);
+          } else if (event.type === 'error') {
+            clearTimeout(timeout);
+            ws.removeListener('message', messageHandler);
+            reject(new Error(`API error: ${event.error.message}`));
+          }
+        } catch (err) {
+          // Continue waiting if we can't parse the message
+          logger.debug(`Error parsing message while waiting for ${expectedType}: ${err}`);
+        }
+      };
+
+      ws.on('message', messageHandler);
+    });
+  }
+
+  private async sendMessage(ws: WSType, message: any): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        logger.debug(`Sending message: ${JSON.stringify(message)}`);
+        ws.send(JSON.stringify(message), (error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  async callApi(
+    prompt: string,
+    context?: CallApiContextParams,
+    callApiOptions?: CallApiOptionsParams,
+  ): Promise<ProviderResponse> {
+    if (!this.getApiKey()) {
+      throw new Error(
+        'OpenAI API key is not set. Set the OPENAI_API_KEY environment variable or add `apiKey` to the provider config.',
+      );
+    }
+
+    let ws: WSType | null = null;
+    try {
+      logger.debug('Starting API call...');
+      ws = await this.initWebSocket();
+      this.ws = ws;
+
+      logger.debug('Initializing session...');
+      await this.sendMessage(ws, {
+        type: 'session.update',
+        session: {
+          voice: this.config.voice || 'alloy',
+        },
+      });
+      // Wait for session acknowledgment
+      await this.waitForEvent(ws, 'session.updated');
+
+      logger.debug('Creating response...');
+      await this.sendMessage(ws, {
+        type: 'response.create',
+        response: {
+          modalities: ['audio', 'text'],
+          instructions:
+            'You are a helpful AI assistant. Please provide clear and concise responses.',
+        },
+      });
+      // Wait for response creation acknowledgment
+      await this.waitForEvent(ws, 'response.created');
+
+      logger.debug('Sending user message...');
+      await this.sendMessage(ws, {
+        type: 'conversation.item.create',
+        item: {
+          type: 'message',
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: prompt,
+            },
+          ],
+        },
+      });
+
+      return new Promise((resolve, reject) => {
+        if (!ws) {
+          reject(new Error('WebSocket connection not initialized'));
+          return;
+        }
+
+        let output = '';
+        let audioData = '';
+        let audioId = '';
+        let expiresAt = 0;
+        let isDone = false;
+        let hasStartedReceiving = false;
+
+        const timeout = setTimeout(() => {
+          if (!isDone) {
+            logger.error('Request timed out');
+            ws?.close();
+            reject(new Error('Request timed out'));
+          }
+        }, REQUEST_TIMEOUT_MS);
+
+        ws.on('close', (code, reason) => {
+          logger.debug(`WebSocket closed during response with code ${code} and reason: ${reason}`);
+          clearTimeout(timeout);
+          if (!isDone && hasStartedReceiving) {
+            resolve({
+              output,
+              audio: audioData
+                ? {
+                    data: audioData,
+                    id: audioId,
+                    expires_at: expiresAt,
+                    transcript: output,
+                  }
+                : undefined,
+              cached: false,
+            });
+          } else if (!isDone) {
+            reject(
+              new Error(`WebSocket closed unexpectedly (${code}${reason ? ': ' + reason : ''})`),
+            );
+          }
+        });
+
+        ws.on('error', (error) => {
+          logger.error(`WebSocket error during response: ${error}`);
+          clearTimeout(timeout);
+          reject(error);
+        });
+
+        ws.on('message', (data: WebSocket.RawData) => {
+          try {
+            const event = JSON.parse(data.toString());
+            logger.debug(`Received event: ${JSON.stringify(event)}`);
+            hasStartedReceiving = true;
+
+            if (event.type === 'error') {
+              clearTimeout(timeout);
+              reject(new Error(`API error: ${event.error.message}`));
+              return;
+            }
+
+            switch (event.type) {
+              case 'response.output.done':
+              case 'response.completed':
+              case 'done':
+                isDone = true;
+                clearTimeout(timeout);
+                resolve({
+                  output,
+                  audio: audioData
+                    ? {
+                        data: audioData,
+                        id: audioId,
+                        expires_at: expiresAt,
+                        transcript: output,
+                      }
+                    : undefined,
+                  cached: false,
+                });
+                ws?.close();
+                return;
+
+              case 'response.output.text':
+                output += event.text;
+                break;
+
+              case 'response.output.audio':
+                audioData = event.audio;
+                audioId = event.id;
+                expiresAt = event.expires_at;
+                break;
+
+              case 'response.failed':
+              case 'error':
+                clearTimeout(timeout);
+                reject(new Error(`Response failed: ${event.error?.message || 'Unknown error'}`));
+                return;
+
+              default:
+                logger.debug(`Unknown event type: ${event.type}`);
+            }
+          } catch (err) {
+            logger.error(`Error processing message: ${err}`);
+            clearTimeout(timeout);
+            reject(err);
+          }
+        });
+      });
+    } catch (err) {
+      logger.error(`API call error: ${String(err)}`);
+      return {
+        error: `API call error: ${String(err)}`,
+      };
+    } finally {
+      if (ws) {
+        try {
+          ws.close();
+        } catch (err) {
+          logger.error(`Error closing WebSocket: ${String(err)}`);
+        }
+      }
+      this.ws = null;
+    }
+  }
+}
+
+// Update the default provider with valid voice and format options
+export const DefaultAudioProvider = new OpenAiAudioProvider('gpt-4o-audio-preview', {
+  config: {
+    voice: 'alloy',
+    format: 'wav',
+  },
+});
 
 export const DefaultEmbeddingProvider = new OpenAiEmbeddingProvider('text-embedding-3-large');
 export const DefaultGradingProvider = new OpenAiChatCompletionProvider('gpt-4o-2024-05-13');
