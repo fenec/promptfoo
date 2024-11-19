@@ -20,7 +20,6 @@ import { getTargetResponse } from '../../../src/redteam/providers/shared';
 import type { ApiProvider, CallApiContextParams, CallApiOptionsParams } from '../../../src/types';
 import { getNunjucksEngine } from '../../../src/util/templates';
 
-// Mock dependencies
 jest.mock('../../../src/providers/openai');
 jest.mock('../../../src/util/templates');
 
@@ -180,7 +179,7 @@ describe('RedteamIterativeProvider', () => {
         'Target prompt',
       );
 
-      expect(result).toBe(true);
+      expect(result).toMatchObject({ isOnTopic: true });
       expect(mockRedteamProvider.callApi).toHaveBeenCalledTimes(1);
       expect(mockRedteamProvider.callApi).toHaveBeenCalledWith(
         '[{"role":"system","content":"On-topic system prompt"},{"role":"user","content":"Target prompt"}]',
@@ -202,7 +201,7 @@ describe('RedteamIterativeProvider', () => {
         'Off-topic prompt',
       );
 
-      expect(result).toBe(false);
+      expect(result).toMatchObject({ isOnTopic: false });
     });
 
     it('should throw an error for invalid API response', async () => {
@@ -462,7 +461,7 @@ describe('RedteamIterativeProvider', () => {
       const options: CallApiOptionsParams = {};
       const result = await getTargetResponse(mockTargetProvider, targetPrompt, context, options);
 
-      expect(result).toBe(mockResponse);
+      expect(result).toMatchObject({ extractedResponse: mockResponse });
       expect(mockTargetProvider.callApi).toHaveBeenCalledTimes(1);
       expect(mockTargetProvider.callApi).toHaveBeenCalledWith(targetPrompt, context, options);
     });
@@ -479,7 +478,7 @@ describe('RedteamIterativeProvider', () => {
         {} as CallApiOptionsParams,
       );
 
-      expect(result).toBe(JSON.stringify(nonStringOutput));
+      expect(result).toMatchObject({ extractedResponse: JSON.stringify(nonStringOutput) });
     });
   });
 });
