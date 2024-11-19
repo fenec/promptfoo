@@ -23,7 +23,7 @@ import type { OpenAiFunction, OpenAiTool } from './openaiUtil';
 import { calculateCost, REQUEST_TIMEOUT_MS, parseChatPrompt, toTitleCase } from './shared';
 
 export const OPENAI_AUDIO_MODELS = [
-  ...['gpt-4o-audio-preview', 'gpt-4o-realtime-preview-2024-10-01'].map((model) => ({
+  ...['gpt-4o-realtime-preview', 'gpt-4o-realtime-preview-2024-10-01'].map((model) => ({
     id: model,
     cost: {
       input: 15 / 1e6,
