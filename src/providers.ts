@@ -151,23 +151,29 @@ export async function loadApiProvider(
   } else if (providerPath.startsWith('openai:')) {
     // Load OpenAI module
     const splits = providerPath.split(':');
-    const modelType = splits[1];
-    const modelName = splits.slice(2).join(':');
+    const modelType = splits.length === 3 ? splits[1] : undefined;
+    const modelName = splits.length === 3 ? splits[2] : splits[1];
 
-    if (modelType === 'chat') {
+    logger.info(`modelType ${modelType}, modelName ${modelName}`);
+
+    if (
+      modelType === 'chat' ||
+      OpenAiChatCompletionProvider.OPENAI_CHAT_MODEL_NAMES.includes(modelName)
+    ) {
       ret = new OpenAiChatCompletionProvider(modelName || 'gpt-4o-mini', providerOptions);
+    } else if (
+      modelType === 'audio' ||
+      OpenAiAudioProvider.OPENAI_AUDIO_MODEL_NAMES.includes(modelName)
+    ) {
+      ret = new OpenAiAudioProvider(modelName, providerOptions);
+    } else if (OpenAiCompletionProvider.OPENAI_COMPLETION_MODEL_NAMES.includes(modelName)) {
+      ret = new OpenAiCompletionProvider(modelName, providerOptions);
     } else if (modelType === 'embedding' || modelType === 'embeddings') {
       ret = new OpenAiEmbeddingProvider(modelName || 'text-embedding-3-large', providerOptions);
     } else if (modelType === 'completion') {
       ret = new OpenAiCompletionProvider(modelName || 'gpt-3.5-turbo-instruct', providerOptions);
     } else if (modelType === 'moderation') {
       ret = new OpenAiModerationProvider(modelName || 'omni-moderation-latest', providerOptions);
-    } else if (OpenAiAudioProvider.OPENAI_AUDIO_MODEL_NAMES.includes(modelName)) {
-      ret = new OpenAiAudioProvider(modelName, providerOptions);
-    } else if (OpenAiChatCompletionProvider.OPENAI_CHAT_MODEL_NAMES.includes(modelType)) {
-      ret = new OpenAiChatCompletionProvider(modelType, providerOptions);
-    } else if (OpenAiCompletionProvider.OPENAI_COMPLETION_MODEL_NAMES.includes(modelType)) {
-      ret = new OpenAiCompletionProvider(modelType, providerOptions);
     } else if (modelType === 'assistant') {
       ret = new OpenAiAssistantProvider(modelName, providerOptions);
     } else if (modelType === 'image') {
@@ -177,7 +183,7 @@ export async function loadApiProvider(
       logger.warn(
         `Unknown OpenAI model type: ${modelType}. Treating it as a chat model. Use one of the following providers: openai:chat:<model name>, openai:completion:<model name>, openai:embeddings:<model name>, openai:image:<model name>`,
       );
-      ret = new OpenAiChatCompletionProvider(modelType, providerOptions);
+      ret = new OpenAiChatCompletionProvider(modelName, providerOptions);
     }
   } else if (providerPath.startsWith('azure:') || providerPath.startsWith('azureopenai:')) {
     // Load Azure OpenAI module
