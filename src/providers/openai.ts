@@ -1124,6 +1124,8 @@ export class OpenAiModerationProvider
 
 export class OpenAiAudioProvider extends OpenAiGenericProvider {
   static readonly OPENAI_AUDIO_MODELS = OPENAI_AUDIO_MODELS;
+  static readonly OPENAI_AUDIO_MODEL_NAMES = OPENAI_AUDIO_MODELS.map((model) => model.id);
+
   config: OpenAiAudioOptions;
 
   constructor(

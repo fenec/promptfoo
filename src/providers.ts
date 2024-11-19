@@ -162,7 +162,7 @@ export async function loadApiProvider(
       ret = new OpenAiCompletionProvider(modelName || 'gpt-3.5-turbo-instruct', providerOptions);
     } else if (modelType === 'moderation') {
       ret = new OpenAiModerationProvider(modelName || 'omni-moderation-latest', providerOptions);
-    } else if (OpenAiAudioProvider.OPENAI_AUDIO_MODELS.some((model) => model.id === modelName)) {
+    } else if (OpenAiAudioProvider.OPENAI_AUDIO_MODEL_NAMES.includes(modelName)) {
       ret = new OpenAiAudioProvider(modelName, providerOptions);
     } else if (OpenAiChatCompletionProvider.OPENAI_CHAT_MODEL_NAMES.includes(modelType)) {
       ret = new OpenAiChatCompletionProvider(modelType, providerOptions);
