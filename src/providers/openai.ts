@@ -26,8 +26,12 @@ export const OPENAI_AUDIO_MODELS = [
   ...['gpt-4o-realtime-preview', 'gpt-4o-realtime-preview-2024-10-01'].map((model) => ({
     id: model,
     cost: {
-      input: 15 / 1e6,
-      output: 60 / 1e6,
+      input: 5 / 1e6,
+      cachedInput: 2.5 / 1e6,
+      output: 20 / 1e6,
+      audioInput: 100 / 1e6,
+      audioCachedInput: 20 / 1e6,
+      audioOutput: 200 / 1e6,
     },
     requiresAudio: true,
   })),
